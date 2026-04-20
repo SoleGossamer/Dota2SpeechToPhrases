@@ -1,0 +1,24 @@
+﻿<Window x:Class="Dota2SpeechToPhrases.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Dota2SpeechToPhrases"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="473">
+    <StackPanel Margin="20">
+        <TextBlock Text="Микрофон (Input):" FontWeight="Bold"/>
+        <ComboBox x:Name="MicComboBox" DisplayMemberPath="Name"/>
+
+        <TextBlock Text="Виртуальный кабель (Output):" FontWeight="Bold" Margin="0,10,0,0"/>
+        <ComboBox x:Name="CableComboBox" DisplayMemberPath="Name"/>
+
+        <Button x:Name="BtnStart" Content="ЗАПУСТИТЬ МОСТ" Height="40" Margin="0,20,0,0" Click="BtnStart_Click"/>
+
+        <Separator Margin="0,10"/>
+
+        <Button x:Name="BtnTestSound" Content="Проиграть тестовый звук" Click="BtnTestSound_Click"/>
+        <TextBlock x:Name="StatusText" Text="Статус: Ожидание" Foreground="Gray" HorizontalAlignment="Center"/>
+        <TextBlock x:Name="RecognizedText" Text="Слышу: ..." Margin="0,10" Foreground="Blue"/>
+    </StackPanel>
+</Window>
