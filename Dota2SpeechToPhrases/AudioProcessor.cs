@@ -26,44 +26,43 @@ namespace DotaVoiceAssistant
         }
 
         public event Action<string>? OnPhraseRecognized;
+
+        private BufferedWaveProvider? _cableBuffer; // Буфер для виртуального кабеля
+        public bool IsListenMode { get; set; } = false;
         public void Start(int micIndex, int cableIndex)
         {
-            // 1. Захват (пробуем захватить как есть)
-            _micInput = new WaveInEvent { DeviceNumber = micIndex };
-            _micInput.WaveFormat = new WaveFormat(16000, 1); // Формат захвата
+            var format = new WaveFormat(16000, 1);
 
-            _micProvider = new WaveInProvider(_micInput);
+            // 1. Настройка входа
+            _micInput = new WaveInEvent { DeviceNumber = micIndex, WaveFormat = format };
 
-            // 2. Микшер (IEEE Float для смешивания)
-            _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(16000, 1));
-            _mixer.ReadFully = true;
-            _mixer.AddMixerInput(_micProvider.ToSampleProvider());
+            // 2. Настройка буфера для кабеля
+            _cableBuffer = new BufferedWaveProvider(format) { DiscardOnBufferOverflow = true };
 
-            // 3. Вывод
+            // 3. Вывод (читает из _cableBuffer)
             _virtualOutput = new WaveOutEvent { DeviceNumber = cableIndex };
-            _virtualOutput.Init(_mixer);
+            _virtualOutput.Init(_cableBuffer);
 
-            // --- ГАРАНТИРОВАННЫЙ ФОРМАТ ДЛЯ VOSK ---
             _micInput.DataAvailable += (s, e) =>
             {
                 if (_recognizer == null) return;
 
-                // Vosk ОЧЕНЬ чувствителен к размеру буфера. 
-                // Если e.Buffer слишком большой или странный, он роняет процесс.
-                try
+                // --- ЛОГИКА ГОЛОСА ---
+                if (IsListenMode)
                 {
+                    // РЕЖИМ ИИ: отправляем звук ТОЛЬКО в Vosk
                     if (_recognizer.AcceptWaveform(e.Buffer, e.BytesRecorded))
                     {
                         var json = _recognizer.Result();
                         var text = JObject.Parse(json)["text"]?.ToString();
-                        if (!string.IsNullOrEmpty(text))
-                        {
-                            OnPhraseRecognized?.Invoke(text);
-                            CheckForKeywords(text);
-                        }
+                        if (!string.IsNullOrEmpty(text)) OnPhraseRecognized?.Invoke(text);
                     }
                 }
-                catch { /* Игнорируем мелкие ошибки, чтобы не падал поток */ }
+                else
+                {
+                    // ОБЫЧНЫЙ РЕЖИМ: отправляем звук в виртуальный кабель
+                    _cableBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+                }
             };
 
             _virtualOutput.Play();
@@ -81,8 +80,29 @@ namespace DotaVoiceAssistant
 
         public void Stop()
         {
-            _micInput?.StopRecording();
-            _virtualOutput?.Stop();
+            // 1. Останавливаем вывод звука в кабель
+            if (_virtualOutput != null)
+            {
+                _virtualOutput.Stop();
+                _virtualOutput.Dispose();
+                _virtualOutput = null;
+            }
+
+            // 2. Останавливаем захват с микрофона
+            if (_micInput != null)
+            {
+                _micInput.StopRecording();
+                _micInput.Dispose();
+                _micInput = null;
+            }
+
+            // 3. Очищаем буфер и провайдеры
+            _cableBuffer = null;
+            _micProvider = null;
+            _mixer = null;
+
+            // Рекогнайзер и модель (Vosk) можно не трогать, 
+            // чтобы не тратить время на их повторную загрузку при следующем старте.
         }
 
         public void ListDevices()
@@ -132,12 +152,5 @@ namespace DotaVoiceAssistant
             return (micId, cableId);
         }
 
-        private void CheckForKeywords(string text) // Изменил имя переменной для ясности
-        {
-            if (text.ToLower().Contains("союзник"))
-            {
-                PlaySound(@"E:\Lock\wav_dataset\Winwyv_ally_01_ru.mp3.wav");
-            }
-        }
     }
 }

@@ -20,10 +20,22 @@ namespace Dota2SpeechToPhrases
     /// </summary>
     public partial class MainWindow : Window
     {
+        private KeyboardHook _hook = new KeyboardHook();
         public MainWindow()
         {
             InitializeComponent();
             LoadDevices();
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Отключаем хук перед выходом
+            _hook.Unhook();
+
+            // Останавливаем аудио-процессор
+            _processor.Stop();
+
+            base.OnClosing(e);
         }
 
         private AudioProcessor _processor = new AudioProcessor();
@@ -80,29 +92,64 @@ namespace Dota2SpeechToPhrases
             {
                 try
                 {
-                    // 1. Сначала готовим "мозги" (Vosk)
+                    // 1. Очищаем старые подписки через метод
+                    _hook.ClearSubscribers();
+
+                    // 2. Теперь подписываемся заново
+                    _hook.OnKeyDown += () => { _processor.IsListenMode = true; };
+
+                    // 2. Настраиваем логику зажатия F1
+                    _hook.OnKeyDown += () => {
+                        _processor.IsListenMode = true;
+                    };
+
+                    _hook.OnKeyUp += () => {
+                        _processor.IsListenMode = false;
+                        // Сюда позже добавим команду: _processor.ExecuteFuzzySearch();
+                    };
+
+                    // 3. Готовим Vosk (модель грузится один раз)
                     string modelPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "model");
                     _processor.InitVosk(modelPath);
 
-                    // 2. Подписываемся на события ДО запуска потока данных
+                    // 4. Подписка на текст (очищаем старые, чтобы не плодить дубли в UI)
+                    // Примечание: если OnPhraseRecognized не поддерживает =, оставь как есть
                     _processor.OnPhraseRecognized += (text) => {
                         this.Dispatcher.BeginInvoke(new Action(() => {
                             RecognizedText.Text = $"Слышу: {text}";
                         }));
                     };
 
-                    // 3. ЗАПУСКАЕМ аудио-мост только ОДИН РАЗ
+                    // 5. ЗАПУСК
                     _processor.Start(mic.Id, cable.Id);
+                    _hook.SetHook(); // Включаем перехват клавиш только после старта аудио
 
-                    StatusText.Text = "Статус: РАБОТАЕТ";
+                    // UI фидбек
+                    StatusText.Text = "Статус: РАБОТАЕТ (F1 активна)";
                     StatusText.Foreground = Brushes.Green;
                     BtnStart.IsEnabled = false;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Ошибка инициализации: {ex.Message}");
+                    MessageBox.Show($"Ошибка при запуске: {ex.Message}");
                 }
             }
+            BtnStop.IsEnabled = true;
+        }
+        private void BtnStop_Click(object sender, RoutedEventArgs e)
+        {
+            // 1. Отключаем хук, чтобы клавиша F1 снова работала в обычном режиме
+            _hook.Unhook();
+
+            // 2. Останавливаем аудио
+            _processor.Stop();
+
+            // 3. Обновляем интерфейс
+            StatusText.Text = "Статус: Остановлено";
+            StatusText.Foreground = Brushes.Red;
+
+            BtnStart.IsEnabled = true;
+            BtnStop.IsEnabled = false;
         }
 
         private void BtnTestSound_Click(object sender, RoutedEventArgs e)

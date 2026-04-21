@@ -49,3 +49,4 @@ C:\Users\SoleGossamer\source\repos\Dota2SpeechToPhrases\Dota2SpeechToPhrases\bin
 C:\Users\SoleGossamer\source\repos\Dota2SpeechToPhrases\Dota2SpeechToPhrases\bin\x64\Debug\net10.0-windows\model\ivector\online_cmvn.conf
 C:\Users\SoleGossamer\source\repos\Dota2SpeechToPhrases\Dota2SpeechToPhrases\bin\x64\Debug\net10.0-windows\model\ivector\splice.conf
 C:\Users\SoleGossamer\source\repos\Dota2SpeechToPhrases\Dota2SpeechToPhrases\bin\x64\Debug\net10.0-windows\model\README
+C:\Users\SoleGossamer\source\repos\Dota2SpeechToPhrases\Dota2SpeechToPhrases\obj\x64\Debug\net10.0-windows\Dota2SpeechToPhrases.sourcelink.json
