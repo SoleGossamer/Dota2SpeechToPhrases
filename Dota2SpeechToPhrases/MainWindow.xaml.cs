@@ -25,6 +25,13 @@ namespace Dota2SpeechToPhrases
         {
             InitializeComponent();
             LoadDevices();
+
+            string savedPath = Dota2SpeechToPhrases.Properties.Settings.Default.LastPath;
+            if (!string.IsNullOrEmpty(savedPath))
+            {
+                TxtPath.Text = savedPath;
+                _processor.LoadPhrases(savedPath);
+            }
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -42,12 +49,21 @@ namespace Dota2SpeechToPhrases
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            // Вызываем метод именно у объекта _processor
-            var indices = _processor.GetDeviceIndices();
-
-            if (indices.micId != -1 && indices.cableId != -1)
+            // Берем выбранные устройства напрямую из интерфейса
+            if (MicComboBox.SelectedItem is AudioDevice mic &&
+                CableComboBox.SelectedItem is AudioDevice cable &&
+                MonitorComboBox.SelectedItem is AudioDevice monitor)
             {
-                _processor.Start(indices.micId, indices.cableId);
+                // Передаем их ID в метод Start
+                _processor.Start(mic.Id, cable.Id, monitor.Id);
+
+                // Обновляем статус (для красоты)
+                StatusText.Text = "Статус: РАБОТАЕТ";
+                StatusText.Foreground = System.Windows.Media.Brushes.Green;
+            }
+            else
+            {
+                MessageBox.Show("Ошибка: Выберите все три устройства (Микрофон, Кабель и Наушники).");
             }
         }
 
@@ -62,10 +78,12 @@ namespace Dota2SpeechToPhrases
             // Очистим на всякий случай
             MicComboBox.Items.Clear();
             CableComboBox.Items.Clear();
+            MonitorComboBox.Items.Clear();
 
             // Явно говорим, что показывать Имя
             MicComboBox.DisplayMemberPath = "Name";
             CableComboBox.DisplayMemberPath = "Name";
+            MonitorComboBox.DisplayMemberPath = "Name";
             // Заполняем микрофоны
             for (int i = 0; i < WaveIn.DeviceCount; i++)
             {
@@ -78,17 +96,39 @@ namespace Dota2SpeechToPhrases
                 CableComboBox.Items.Add(new AudioDevice { Id = i, Name = WaveOut.GetCapabilities(i).ProductName });
             }
 
+            for (int i = 0; i < WaveOut.DeviceCount; i++)
+            {
+                MonitorComboBox.Items.Add(new AudioDevice { Id = i, Name = WaveOut.GetCapabilities(i).ProductName });
+            }
+
             // Пытаемся выбрать твои девайсы автоматически
             MicComboBox.SelectedIndex = MicComboBox.Items.Cast<AudioDevice>()
                 .ToList().FindIndex(d => d.Name.Contains("HyperX"));
-
             CableComboBox.SelectedIndex = CableComboBox.Items.Cast<AudioDevice>()
                 .ToList().FindIndex(d => d.Name.Contains("CABLE Input"));
+            MonitorComboBox.SelectedIndex = MonitorComboBox.Items.Cast<AudioDevice>()
+                .ToList().FindIndex(d => d.Name.Contains("High Definition"));
+        }
+
+        private void BtnBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            // Используем WinForms диалог (нужно добавить ссылку на System.Windows.Forms или Microsoft.Win32)
+            var dialog = new Microsoft.Win32.OpenFolderDialog();
+            if (dialog.ShowDialog() == true)
+            {
+                TxtPath.Text = dialog.FolderName;
+                _processor.LoadPhrases(dialog.FolderName);
+
+                // Сохраняем путь навсегда
+                Dota2SpeechToPhrases.Properties.Settings.Default.LastPath = dialog.FolderName;
+                Dota2SpeechToPhrases.Properties.Settings.Default.Save();
+            }
         }
 
         private void BtnStart_Click(object sender, RoutedEventArgs e)
         {
-            if (MicComboBox.SelectedItem is AudioDevice mic && CableComboBox.SelectedItem is AudioDevice cable)
+            if (MicComboBox.SelectedItem is AudioDevice mic && CableComboBox.SelectedItem is AudioDevice cable &&
+        MonitorComboBox.SelectedItem is AudioDevice monitor)
             {
                 try
                 {
@@ -103,9 +143,20 @@ namespace Dota2SpeechToPhrases
                         _processor.IsListenMode = true;
                     };
 
+                    // Синхронизируем состояние тумблера перед запуском
+                    _processor.IsMonitoringEnabled = ChkMonitor.IsChecked ?? false;
+
                     _hook.OnKeyUp += () => {
                         _processor.IsListenMode = false;
-                        // Сюда позже добавим команду: _processor.ExecuteFuzzySearch();
+
+                        // Сразу забираем текст, как только отпустили кнопку
+                        string finalSpeech = _processor.GetFinalText();
+
+                        if (!string.IsNullOrEmpty(finalSpeech))
+                        {
+                            RecognizedText.Text = $"Финально услышал: {finalSpeech}";
+                            _processor.ProcessFinalPhrase(finalSpeech); // Запускаем поиск и проигрывание
+                        }
                     };
 
                     // 3. Готовим Vosk (модель грузится один раз)
@@ -121,7 +172,7 @@ namespace Dota2SpeechToPhrases
                     };
 
                     // 5. ЗАПУСК
-                    _processor.Start(mic.Id, cable.Id);
+                    _processor.Start(mic.Id, cable.Id, monitor.Id);
                     _hook.SetHook(); // Включаем перехват клавиш только после старта аудио
 
                     // UI фидбек
@@ -136,6 +187,7 @@ namespace Dota2SpeechToPhrases
             }
             BtnStop.IsEnabled = true;
         }
+
         private void BtnStop_Click(object sender, RoutedEventArgs e)
         {
             // 1. Отключаем хук, чтобы клавиша F1 снова работала в обычном режиме
@@ -163,6 +215,20 @@ namespace Dota2SpeechToPhrases
             else
             {
                 MessageBox.Show("Тестовый файл не найден. Укажи свой путь в коде!");
+            }
+        }
+
+        private void ChkMonitor_Click(object sender, RoutedEventArgs e)
+        {
+            // Проверяем, инициализирован ли процессор, чтобы не вылетело при запуске
+            if (_processor != null)
+            {
+                bool isEnabled = ChkMonitor.IsChecked ?? false;
+                _processor.SetMonitoring(isEnabled);
+
+                // Визуальное подтверждение в статус-баре (по желанию)
+                if (isEnabled)
+                    StatusText.Text = "Мониторинг включен";
             }
         }
     }

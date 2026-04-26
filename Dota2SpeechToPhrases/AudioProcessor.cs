@@ -1,12 +1,14 @@
-﻿using NAudio.Wave;
+﻿using FuzzySharp;
+using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Vosk;
-using Newtonsoft.Json.Linq;
 
 namespace DotaVoiceAssistant
 {
@@ -28,20 +30,30 @@ namespace DotaVoiceAssistant
         public event Action<string>? OnPhraseRecognized;
 
         private BufferedWaveProvider? _cableBuffer; // Буфер для виртуального кабеля
+        private BufferedWaveProvider? _monitorBuffer;
         public bool IsListenMode { get; set; } = false;
-        public void Start(int micIndex, int cableIndex)
+
+        private WaveOutEvent? _monitorOutput; // Выход на твои наушники
+        public bool IsMonitoringEnabled { get; set; } = false; // Тот самый тумблер
+        public void Start(int micIndex, int cableIndex, int monitorIndex)
         {
             var format = new WaveFormat(16000, 1);
 
             // 1. Настройка входа
             _micInput = new WaveInEvent { DeviceNumber = micIndex, WaveFormat = format };
 
-            // 2. Настройка буфера для кабеля
+            // 2. Настройка буферов (для виртуального кабеля и мониторинга)
             _cableBuffer = new BufferedWaveProvider(format) { DiscardOnBufferOverflow = true };
+            _monitorBuffer = new BufferedWaveProvider(format) { DiscardOnBufferOverflow = true };
 
             // 3. Вывод (читает из _cableBuffer)
             _virtualOutput = new WaveOutEvent { DeviceNumber = cableIndex };
-            _virtualOutput.Init(_cableBuffer);
+            _virtualOutput.Init(_cableBuffer); // Он читает из буфера виртуального кабеля
+
+            // Инициализируем мониторинг (наушники)
+            _monitorOutput = new WaveOutEvent { DeviceNumber = monitorIndex };
+            _monitorOutput.Init(_monitorBuffer); // Он читает из мониторингового буфера
+            _monitorOutput.Volume = IsMonitoringEnabled ? 1.0f : 0.0f; // Явная установка громкости при старте
 
             _micInput.DataAvailable += (s, e) =>
             {
@@ -62,10 +74,16 @@ namespace DotaVoiceAssistant
                 {
                     // ОБЫЧНЫЙ РЕЖИМ: отправляем звук в виртуальный кабель
                     _cableBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+                    // И одновременно в мониторинговый буфер (если мониторинг включен)
+                    if (IsMonitoringEnabled)
+                    {
+                        _monitorBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+                    }
                 }
             };
 
             _virtualOutput.Play();
+            _monitorOutput.Play();
             _micInput.StartRecording();
         }
 
@@ -124,6 +142,15 @@ namespace DotaVoiceAssistant
             }
         }
 
+        public void SetMonitoring(bool enabled)
+        {
+            IsMonitoringEnabled = enabled;
+            if (_monitorOutput != null)
+            {
+                _monitorOutput.Volume = enabled ? 1.0f : 0.0f;
+            }
+        }
+
         public (int micId, int cableId) GetDeviceIndices()
         {
             int micId = -1;
@@ -152,5 +179,55 @@ namespace DotaVoiceAssistant
             return (micId, cableId);
         }
 
+        public string GetFinalText()
+        {
+            if (_recognizer == null) return "";
+
+            // Получаем то, что Vosk накопил до этого момента
+            var json = _recognizer.FinalResult();
+            var text = JObject.Parse(json)["text"]?.ToString() ?? "";
+
+            // Важно: после FinalResult рекогнайзер сбрасывается, 
+            // поэтому для следующей фразы он будет чист.
+            return text;
+        }
+
+        private Dictionary<string, string> _phraseFiles = new Dictionary<string, string>();
+
+        public void LoadPhrases(string folderPath)
+        {
+            _phraseFiles.Clear();
+            if (!Directory.Exists(folderPath)) return;
+
+            // Список поддерживаемых расширений
+            var extensions = new[] { ".wav", ".mp3", ".mpeg" };
+
+            var files = Directory.EnumerateFiles(folderPath, "*.*")
+                                 .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()));
+
+            foreach (var file in files)
+            {
+                string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+                _phraseFiles[fileName] = file;
+            }
+        }
+
+        public void ProcessFinalPhrase(string recognizedText)
+        {
+            if (string.IsNullOrWhiteSpace(recognizedText) || _phraseFiles.Count == 0) return;
+
+            // Находим лучшее совпадение среди ключей нашего словаря
+            var result = FuzzySharp.Process.ExtractOne(recognizedText.ToLower(), _phraseFiles.Keys);
+
+            // result.Score — это процент сходства (0-100)
+            if (result.Score > 70) // 70% — золотой стандарт для Dota
+            {
+                string filePath = _phraseFiles[result.Value];
+
+                // 1. Эмулируем нажатие клавиши G (голосовой чат в Доте)
+                // 2. Проигрываем файл filePath
+                PlaySound(filePath);
+            }
+        }
     }
 }

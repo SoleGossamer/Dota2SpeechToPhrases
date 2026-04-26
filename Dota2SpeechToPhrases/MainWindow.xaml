@@ -13,13 +13,27 @@
         <TextBlock Text="Виртуальный кабель (Output):" FontWeight="Bold" Margin="0,10,0,0"/>
         <ComboBox x:Name="CableComboBox" DisplayMemberPath="Name"/>
 
+        <TextBox x:Name="TxtPath" Width="250" IsReadOnly="True" VerticalAlignment="Center"/>
+        <Button x:Name="BtnBrowse" Content="Обзор..." Click="BtnBrowse_Click" Margin="5,0"/>
+
         <Button x:Name="BtnStart" Content="ЗАПУСТИТЬ МОСТ" Height="40" Margin="0,20,0,0" Click="BtnStart_Click"/>
         <Button x:Name="BtnStop" Content="Остановить мост" Click="BtnStop_Click" IsEnabled="False"/>
 
         <Separator Margin="0,10"/>
 
         <Button x:Name="BtnTestSound" Content="Проиграть тестовый звук" Click="BtnTestSound_Click"/>
+        <Label Content="Устройство мониторинга (твои наушники):" Foreground="White"/>
+        <ComboBox x:Name="MonitorComboBox" DisplayMemberPath="Name" Margin="0,0,0,10"/>
+
+        <CheckBox x:Name="ChkMonitor" 
+              Content="Слышать себя (Мониторинг)" 
+              Foreground="White" 
+              FontSize="14"
+              VerticalContentAlignment="Center"
+              Checked="ChkMonitor_Click" 
+              Unchecked="ChkMonitor_Click"/>
         <TextBlock x:Name="StatusText" Text="Статус: Ожидание" Foreground="Gray" HorizontalAlignment="Center"/>
         <TextBlock x:Name="RecognizedText" Text="Слышу: ..." Margin="0,10" Foreground="Blue"/>
     </StackPanel>
+    
 </Window>
